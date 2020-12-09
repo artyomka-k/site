@@ -1,0 +1,663 @@
+---
+title: "**Project on logistic regression**"
+author: "*by Artyom Kulikov*"
+date: "01/11/2020"
+output: 
+  html_document:
+    theme: united
+    toc: true
+    toc_float:
+      collapsed: false
+      smooth_scroll: false
+    css: style.css
+   
+---
+
+# Introduction
+
+In this project I will build a binary logistic regression model that is intended to predict attending lawful demonstrations. The data for the analysis is taken from 7th wave of World Values Survey. The focus of analysis is Russia. I have 9 variables to select from prepared dataset and there will be up to 2 variables of categorical and continuous type as predictors.
+
+# Getting started
+
+This section is devoted to preparation of data before analysis. First, it is necessary to upload packages and dataset.
+
+```{r message=FALSE, warning=FALSE}
+library(dplyr)
+library(ggplot2)
+library(ggthemes)
+library(psych)
+library(kableExtra)
+library(equatiomatic)
+library(gridExtra)
+library(ggpubr)
+library(naniar)
+library(VIM)
+library(mice)
+library(margins)
+library(caret)
+library(car)
+library(sjPlot)
+library(rcompanion)
+library(tidyr)
+
+df <- readRDS("ruwvs")
+```
+
+Now I have a dataset and it is necessary to look at its structure to be sure that variables are of a proper type.
+
+```{r message=FALSE, warning=FALSE}
+str(df)
+
+#Age is factor now, but should be in numeric form
+df$age<-as.numeric(as.character(df$age))
+
+#The value of settlement "Another city, town(not a regional or district center)" is rather long and it will be inconvenient to print it in graphics and model summaries. Let's make it shorter.
+levels(df$settlement)[4]<-"Another city"
+
+#income is in continuous form, so just for the convenience let's delete its categorical form.
+df$income<-NULL
+```
+
+Now, the environment is prepared for work and I can proceed to inspection of data in the next part.
+
+# Data description {.tabset}
+
+In this part of the project, the variables for further analysis are described in detail. To get information about variables, press buttons.
+
+## Attending demonstrations
+
+Attending peaceful demonstrations (Q211) is a binary variable where 1 means that a person will attend a demonstration while 0 refers to rejection to attend. Q211 is an outcome variable in our model. From the barplots below it is seen that both values of the variable are filled enough with observations.
+
+```{r message=FALSE, warning=FALSE, fig.width=10, fig.height=7, echo=FALSE}
+p1<-ggplot(df, aes(x=Q211, fill=Q211))+
+  geom_bar(show.legend = FALSE, width = 0.5)+
+  labs(title = "Absolute numbers", 
+       x="", y="Number of observations")+
+  scale_x_discrete(labels = c("Not attend", "Attend"))+
+  stat_count(aes(label=..count..), vjust=-1, geom="text", position="identity")+
+  ylim(0, 1200)+
+  theme_stata(scheme = "s1color")+
+  theme(axis.text.y = element_text(angle = 0),
+        axis.title.y = element_text(vjust = 2, size = 12)
+        )
+
+p2<-ggplot(df, aes(x=Q211, y = after_stat(100*count/sum(count)), fill=Q211))+
+  geom_bar(show.legend = FALSE, width = 0.5)+
+  labs(title = "Percentage", 
+       x="", y="%")+
+  scale_x_discrete(labels = c("Not attend", "Attend"))+
+  stat_count(aes(label=round(after_stat(100*count/sum(count)))), vjust=-1, geom="text", position="identity")+
+  ylim(0,100)+
+  theme_stata(scheme = "s1color")+
+  theme(axis.text.y = element_text(angle = 0),
+        axis.title.y = element_text(vjust = 2, size = 12)
+        )
+
+grid.arrange(p1, p2, top = text_grob('Attending peaceful demonstrations', size=16, face = "bold"), nrow = 1)
+```
+
+## Interest in politics
+
+Interest in politics (intinpol) is an ordinal variable with four levels from "Not at all interested" [in politics] to "Very interested". "intinpol" can be used as a predictor in our model. As seen from the barplots below, both values of the variable are filled enough with observations. It seems that it is possible to include this variable as a predictor.
+
+```{r message=FALSE, warning=FALSE, echo=FALSE, fig.width=10, fig.height=7}
+p3<-ggplot(df, aes(x=intinpol))+
+  geom_bar(width = 0.5, fill="#e95420")+
+  labs(title = "Absolute numbers", 
+       x="", y="Number of observations")+
+  stat_count(aes(label=..count..), vjust=0.2, hjust=-0.2, geom="text", position="identity")+
+  scale_x_discrete(na.translate = FALSE)+
+  coord_flip(ylim = c(0, 800))+
+  theme_stata(scheme = "s1color")+
+  theme(axis.text.y = element_text(angle = 0),
+        axis.title.x = element_text(vjust = 2, size = 12)
+        )
+
+p4<-ggplot(df, aes(x=intinpol, y = after_stat(100*count/sum(count))))+
+  geom_bar(width = 0.5, fill="#e95420")+
+  labs(title = "Percentage", 
+       x="", y="%")+
+  scale_x_discrete(na.translate = FALSE)+
+  stat_count(aes(label=round(after_stat(100*count/sum(count)))), vjust=0.2, hjust=-0.2, geom="text", position="identity")+
+  ylim(0,100)+
+  coord_flip()+
+  theme_stata(scheme = "s1color")+
+  theme(axis.text.y = element_text(angle = 0),
+        axis.title.x = element_text(vjust = 2, size = 12)
+        )
+
+grid.arrange(p3, p4, top = text_grob('Distribution of interests in politics', size=16, face = "bold"), nrow = 1)
+```
+
+## Education
+
+Education (eduR) is an ordinal variable with four levels (Primary, Secondary, Post-secondary and Tertiary). Because of Russian context where a person should have at least secondary education, it is very rare that someone have only primary education. Considering this fact it is useless to include this variable in analysis because primary education as reference group in the model will always be in inferior position because of small number of cases.
+
+```{r message=FALSE, warning=FALSE, echo=FALSE, fig.width=10, fig.height=7}
+p5<-ggplot(df, aes(x=eduR))+
+  geom_bar(width = 0.5, fill="#e95420")+
+  labs(title = "Absolute numbers", 
+       x="Levels of education", y="Number of observations")+
+  stat_count(aes(label=..count..), vjust=-0.9, geom="text", position="identity")+
+  ylim(0,700)+
+  scale_x_discrete(na.translate = FALSE)+
+  theme_stata(scheme = "s1color")+
+  theme(axis.text.y = element_text(angle = 0),
+        axis.title.y = element_text(vjust = 2, size = 12),
+        axis.title.x = element_text(size = 12)
+        )
+
+p6<-ggplot(df, aes(x=eduR, y = after_stat(100*count/sum(count))))+
+  geom_bar(width = 0.5, fill="#e95420")+
+  labs(title = "Percentage", 
+       x="Levels of education", y="%")+
+  scale_x_discrete(na.translate = FALSE)+
+  stat_count(aes(label=round(after_stat(100*count/sum(count)))), vjust=-1, geom="text", position="identity")+
+  ylim(0,100)+
+  theme_stata(scheme = "s1color")+
+  theme(axis.text.y = element_text(angle = 0),
+        axis.title.y = element_text(vjust = 2, size = 12),
+        axis.title.x = element_text(size = 12)
+        )
+
+grid.arrange(p5, p6, top = text_grob('Distribution of levels of education', size=16, face = "bold"), nrow = 1)
+```
+
+## Size of town
+
+Size of town (townsize) is an ordinal variable representing sizes of population in its levels. From the barplots below it is possible to see that both values of the variable are filled enough with observations. However, it seems that this variable is not much appropriate for the model.
+
+```{r message=FALSE, warning=FALSE, echo=FALSE, fig.width=10, fig.height=7}
+p7<-ggplot(df, aes(x=townsize))+
+  geom_bar(width = 0.5, fill="#e95420")+
+  labs(title = "Absolute numbers", 
+       x="Size of population", y="Number of observations")+
+  stat_count(aes(label=..count..), vjust=0.2, hjust=-0.2, geom="text", position="identity")+
+  ylim(0,700)+
+  coord_flip()+
+  theme_stata(scheme = "s1color")+
+  theme(axis.text.y = element_text(angle = 0),
+        axis.title.x = element_text(vjust = 2, size = 12)
+        )
+
+p8<-ggplot(df, aes(x=townsize, y = after_stat(100*count/sum(count))))+
+  geom_bar(width = 0.5, fill="#e95420")+
+  labs(title = "Percentage", 
+       x="Size of population", y="%")+
+  stat_count(aes(label=round(after_stat(100*count/sum(count)))), vjust=0.2, hjust=-0.2, geom="text", position="identity")+
+  ylim(0,100)+
+  coord_flip()+
+  theme_stata(scheme = "s1color")+
+  theme(axis.text.y = element_text(angle = 0),
+        axis.title.x = element_text(vjust = 2, size = 12)
+        )
+
+grid.arrange(p7, p8 + rremove("y.title"), top = text_grob('Distribution of size of town', size=16, face = "bold"), nrow = 1)
+```
+
+## Type of settlement
+
+Type of settlement (settlement) is a categorical variable containing different types of residential areas in Russia. It will not be included in a model because some values has not very many observations.
+
+```{r message=FALSE, warning=FALSE, echo=FALSE, fig.width=11, fig.height=7}
+p9<-ggplot(df, aes(x=settlement))+
+  geom_bar(width = 0.5, fill="#e95420")+
+  labs(title = "Absolute numbers", 
+       x="", y="Number of observations")+
+  stat_count(aes(label=..count..), vjust=0.2, hjust=-0.2, geom="text", position="identity")+
+  coord_flip(ylim = c(0, 600))+
+  theme_stata(scheme = "s1color")+
+  theme(axis.text.y = element_text(angle = 0),
+        axis.title.x = element_text(vjust = 2, size = 12)
+        )
+
+p10<-ggplot(df, aes(x=settlement, y = after_stat(100*count/sum(count))))+
+  geom_bar(width = 0.5, fill="#e95420")+
+  labs(title = "Perncetage", 
+       x="", y="%")+
+  stat_count(aes(label=round(after_stat(100*count/sum(count)))), vjust=0.2, hjust=-0.2, geom="text", position="identity")+
+  coord_flip()+
+  ylim(0,100)+
+  theme_stata(scheme = "s1color")+
+  theme(axis.text.y = element_text(angle = 0),
+        axis.title.x = element_text(vjust = 2, size = 12)
+        )
+
+grid.arrange(p9, p10, top = text_grob('Distribution of type of settlement', size=16, face = "bold"), nrow = 1)
+```
+
+## Region
+
+Region is a categorical variable with names of Russian regions. It will not be included in analysis because it is rather hard to define proper reference group here to compare while interpreting model.
+
+```{r message=FALSE, warning=FALSE, echo=FALSE, fig.width=10, fig.height=6}
+ggplot(df, aes(x=region))+
+  geom_bar(width = 0.5, fill="#e95420")+
+  labs(title = "Distribution of regions in absolute numbers", 
+       x="", y="Number of observations")+
+  stat_count(aes(label=..count..), vjust=0.2, hjust=-0.2, geom="text", position="identity")+
+  ylim(0,500)+
+  coord_flip()+
+  theme_stata(scheme = "s1color")+
+  theme(axis.text.y = element_text(angle = 0),
+        axis.title.x = element_text(vjust = 2, size = 12),
+        plot.title = element_text(face = "bold", size = 16)
+        )
+
+ggplot(df, aes(x=region, y = after_stat(100*count/sum(count))))+
+  geom_bar(width = 0.5, fill="#e95420")+
+  labs(title = "Distribution of regions in percentage", 
+       x="", y="%")+
+  stat_count(aes(label=round(after_stat(100*count/sum(count)))), vjust=0.2, hjust=-0.2, geom="text", position="identity")+
+  ylim(0,100)+
+  coord_flip()+
+  theme_stata(scheme = "s1color")+
+  theme(axis.text.y = element_text(angle = 0),
+        axis.title.x = element_text(vjust = 2, size = 12),
+        plot.title = element_text(face = "bold", size = 16)
+        )
+
+```
+
+## Age
+
+Age is a continuous variable presenting age of respondents from WVS. The distribution and descriptive statistics are presented below. By looking at histogram, mean, median, skew and kurtosis, it is clear that distribution is not normal. I will include age in our model since it is necessary to have continuous predictors and age could be a good one for predicting attending demonstrations.
+
+```{r message=FALSE, warning=FALSE, fig.width=10, fig.height=7, echo=FALSE}
+describeBy(df$age) %>% 
+  select(N=n, Mean=mean, SD=sd, Median=median, Min=min, Max=max, Skew=skew, Kurtosis=kurtosis) %>% 
+  kable(align=c("lrrrrrrrr"), digits=2, row.names = FALSE) %>% 
+  kable_styling(bootstrap_options=c("bordered", "responsive", "striped"), full_width = FALSE)
+
+ggplot(df, aes(x=age))+
+  geom_histogram(fill="white", color="black")+
+  geom_vline(aes(xintercept = mean(df$age), colour="Mean"), lwd=1.1 )+
+  geom_vline(aes(xintercept = median(df$age), colour="Median"), lwd=1.1 )+
+  labs(title = "Distribution of age", x="", y="Frequency", colour="")+
+  theme_stata(scheme = "s1color")+
+  theme(
+    legend.title = element_blank(),
+    legend.position = c(0.9, 0.8),
+    axis.text.y = element_text(angle = 0),
+    axis.title.y = element_text(vjust = 2, size = 12),
+    plot.title = element_text(face = "bold", size = 16)
+  )
+  
+```
+
+## Income
+
+Income is a continuous variable transformed from ordinal variable with levels of income. The distribution and descriptive statistics are presented below.  I will include age in our model since it is necessary to have continuous predictors and income could be a good one for predicting attending demonstrations.
+
+```{r message=FALSE, warning=FALSE, fig.width=10, fig.height=7, echo=FALSE}
+describeBy(df$income1) %>% 
+  select(N=n, Mean=mean, SD=sd, Median=median, Min=min, Max=max, Skew=skew, Kurtosis=kurtosis) %>% 
+  kable(align=c("lrrrrrrrr"), digits=2, row.names = FALSE) %>% 
+  kable_styling(bootstrap_options=c("bordered", "responsive", "striped"), full_width = FALSE)
+
+ggplot(df, aes(x=income1))+
+  geom_histogram(fill="white", color="black")+
+  geom_vline(aes(xintercept = mean(df$income1, na.rm = TRUE), colour="Mean"), lwd=1.1 )+
+  geom_vline(aes(xintercept = median(df$income1, na.rm = TRUE), colour="Median"), lwd=1.1 )+
+  labs(title = "Distribution of income", x="", y="Frequency", colour="")+
+  theme_stata(scheme = "s1color")+
+  theme(
+    legend.title = element_blank(),
+    legend.position = c(0.9, 0.8),
+    axis.text.y = element_text(angle = 0),
+    axis.title.y = element_text(vjust = 2, size = 12),
+    plot.title = element_text(face = "bold", size = 16)
+  )
+  
+```
+
+## Tertiary education
+
+Having tertiary  education (eduT) is a binary variable with values 0 and 1 which corresponds to not having and having higher education respectively. From the barplots below it is clear that both values of the variable are filled enough with observations. It seems to be a good idea to include this variable in our analysis.
+
+```{r message=FALSE, warning=FALSE, fig.width=10, fig.height=7, echo=FALSE}
+p13<-ggplot(df, aes(x=eduT, fill=eduT))+
+  geom_bar(show.legend = FALSE, width = 0.5)+
+  labs(title = "Absolute numbers", 
+       x="", y="Number of observations")+
+  scale_x_discrete(labels=c("Do not have", "Have"), na.translate = FALSE)+
+  stat_count(aes(label=..count..), vjust=-1, geom="text", position="identity")+
+  ylim(0, 1300)+
+  theme_stata(scheme = "s1color")+
+  theme(axis.text.y = element_text(angle = 0),
+        axis.title.y = element_text(vjust = 2, size = 12)
+        )
+
+p14<-ggplot(df, aes(x=eduT, y = after_stat(100*count/sum(count)), fill=eduT))+
+  geom_bar(show.legend = FALSE, width = 0.5)+
+  labs(title = "Percentage", 
+       x="", y="%")+
+  scale_x_discrete(labels=c("Do not have", "Have"), na.translate = FALSE)+
+  stat_count(aes(label=round(after_stat(100*count/sum(count)))), vjust=-1, geom="text", position="identity")+
+  ylim(0,100)+
+  theme_stata(scheme = "s1color")+
+  theme(axis.text.y = element_text(angle = 0),
+        axis.title.y = element_text(vjust = 2, size = 12)
+        )
+
+grid.arrange(p13, p14, top = text_grob('Having higher education', size=16, face = "bold"), nrow = 1)
+```
+
+# Dealing with missing data
+
+In this section I am trying to solve the problem of missing data. To begin with, let's observe presence of NAs  in our data
+
+```{r message=FALSE, warning=FALSE}
+miss_var_summary(df)%>%
+  kable()%>%
+  kable_styling(bootstrap_options=c("bordered", "responsive", "striped"), full_width = FALSE)
+vis_miss(df)
+```
+
+As seen from figures above, there are 4 variables with missing data, and overall there is only 0.5% of miss in the whole dataset. This percent is very small, so it is possible to apply imputation to fill missing.
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+df0<-na.omit(df)
+```
+
+## Data imputation
+
+First, let's try k-Nearest Neighbour Imputation (kNN) from VIM package. As seen from the table below, all missing values were successfully imputed. 
+
+```{r message=FALSE, warning=FALSE}
+df_knn <- kNN(df, k=5, variable=c("income1", "eduR", "eduT", "intinpol"))
+
+miss_var_summary(df_knn)%>%
+  kable()%>%
+  kable_styling(bootstrap_options=c("bordered", "responsive", "striped"), full_width = FALSE)
+```
+
+Now, let's try another method - Multivariate Imputation by Chained Equations (MICE) from mice package. As seen from the table below, all missing values were successfully imputed. 
+
+```{r message=FALSE, warning=FALSE}
+dfmice <- mice(df, m=5, defaultMethod = c("pmm", "logreg", "polyreg", "polr"))
+df_mice <- complete(dfmice,3)
+
+miss_var_summary(df_mice)%>%
+  kable()%>%
+  kable_styling(bootstrap_options=c("bordered", "responsive", "striped"), full_width = FALSE)
+```
+
+## Visualization of imputed data
+
+At this point I can visualize imputed data. Since the share of missings in variables eduR, eduT and intinpol was very small, it is rather useless to do visualization because it will be hard to see anything. However, it is still possible to work with income1 variable. In the histograms below visualization of imputed data by two methods is presented.
+
+```{r message=FALSE, warning=FALSE, echo=FALSE, fig.width=10, fig.height=7}
+h1<-ggplot(df_knn, aes(x = income1, fill = income1_imp)) +
+  geom_histogram() +
+  labs(x="", y="Frequency")+
+  scale_fill_stata(scheme = "s1color", labels = c('original', 'imputed'))+
+  theme_stata(scheme = "s1color")+
+  theme(
+    legend.title = element_blank(),
+    legend.position = c(0.9, 0.8),
+    axis.text.y = element_text(angle = 0),
+    axis.title.y = element_text(vjust = 2, size = 12)
+  )
+
+miss1<-bind_shadow(df, only_miss = T)[,(10:13)]
+df1<-cbind(df_mice, miss1)
+
+h2<-ggplot(df1, aes(x = income1, fill = income1_NA)) +
+  geom_histogram() +
+  labs(x="", y="")+
+  scale_fill_stata(scheme = "s1color", labels = c('original', 'imputed'))+
+  theme_stata(scheme = "s1color")+
+  theme(
+    legend.title = element_blank(),
+    legend.position = c(0.9, 0.8),
+    axis.text.y = element_text(angle = 0),
+    axis.title.y = element_text(vjust = 2)
+  )
+
+ggarrange(h1, h2, common.legend = TRUE, legend = "bottom", labels = c("kNN", "mice "), font.label = list(face="plain"))%>%
+  annotate_figure(top = text_grob('Distribution of income with imputed values', size=16, face = "bold"))
+  
+```
+
+According to the histograms above, it can be said that kNN works better here because imputed data repeats distribution of original data.
+
+# Building a model
+
+Now, I am ready to start model building. To remind, I have Q211 as an outcome variable and income1, age, intinpol and eduT as predictors. I will use forward stepwise method meaning adding predictors one by one and looking at whether the model became better.
+
+Before the modeling I want to be sure that there is no empty or small cells by doing a crosstab between
+categorical predictors and the outcome variable.
+
+```{r}
+xtabs(~ Q211 + intinpol, data = df)
+xtabs(~ Q211 + eduT, data = df)
+```
+
+Everything looks rather good. So, let's start with tertiary education.
+
+```{r message=FALSE, warning=FALSE}
+model1 <- glm(Q211 ~ eduT, data = df0, family = binomial())
+summary(model1)
+```
+
+As seen from the output above, the predictor is significant and the residual deviance shows that having a model is better than no model at all. Let's add one more predictor - interest in politics.
+
+```{r message=FALSE, warning=FALSE}
+model2 <- glm(Q211 ~ eduT + intinpol, data = df0, family = binomial())
+summary(model2)
+```
+
+The output above shows that intinpol is significant while eduT lost its significance. 
+
+Now, I will compare given two models with help of anova.
+
+```{r}
+anova(model1, model2, test = "Chisq")
+```
+
+The output says that the second model is significantly better than the first one, so adding "intinpol" variable improved the model.
+
+Moving forward, I add another predictor - income.
+
+```{r message=FALSE, warning=FALSE}
+model3 <- glm(Q211 ~ eduT + intinpol + income1, data = df0, family = binomial())
+summary(model3)
+```
+
+As seen from the output above, all predictors are significant. And I again make a comparative test.
+
+```{r}
+anova(model2, model3, test = "Chisq")
+```
+
+P-value is significant, this model3 is better than model2. 
+
+And I do the final step, adding last predictor - age.
+
+```{r message=FALSE, warning=FALSE}
+model4 <- glm(Q211 ~ eduT + intinpol + income1 + age, data = df0, family = binomial())
+summary(model4)
+```
+
+As seen from above, all predictors but age are significant. Comparing models will show if the model was improved.
+
+```{r}
+anova(model3, model4, test = "Chisq")
+```
+
+The output shows that model4 is not better than model3. Thus, I can say that model3 is the best model and I will take it for further analysis.
+
+# Model comparison
+
+I have three datasets - with omitted NAs, with imputed data by kNN and with imputed data by mice. Let's compare coefficients of models on these three datasets.
+
+```{r include=FALSE}
+model_knn <- glm(Q211 ~ eduT + intinpol + income1, data = df_knn, family = binomial())
+model_mice <- glm(Q211 ~ eduT + intinpol + income1, data = df_mice, family = binomial())
+```
+
+
+```{r}
+tab_model(model3, model_knn, model_mice, show.aic = T, show.loglik = T, bootstrap = T, dv.labels = c('model_omit', 'model_knn', 'model_mice'))
+```
+
+\ 
+As seen from the table above, some coefficients are same through three models (income1 and intinpol[Not at all
+interested]), others are same for imputed ones but different for omitted (intinpol[Somewhat interested] and intinpol[Not very interested]) and for eduT coefficients are different for all three models. However, it is possible to see that model on omitted dataset is the only model with all significant predictors. Guiding by the fact that sizes of samples are different and I cannot apply AIC, pseudoR2 and loglikelyhood, I can conclude that our original model (with omitted NAs) is the best one.
+
+# Interpretation
+
+In this part I will interpret coefficients of the model. First, let's write out the model equation.
+
+```{r results = "asis"}
+extract_eq(model3, wrap = TRUE, use_coefs=TRUE, terms_per_line = 3)
+```
+
+Then, I extract odds ratios by exponentiation of coefficients from equation.
+
+```{r message=FALSE, warning=FALSE}
+exp(cbind(OR = coef(model3), confint(model3)))
+```
+
+The numbers from output above state the following:
+
+* When a person have tertiary education, his/her odds to attend demonstration change by a factor of 1.28 (or increase by 28%) as compared to person without tertiary education (95% CI = [1.03 ; 1.58])
+* When a person is somewhat interested in politics, his/her odds to attend demonstration change by a factor of 0.67 (or decrease by 33%) as compared to person who is very interested in politics (95% CI = [0.46 ; 0.96])
+* When a person is not very interested in politics, his/her odds to attend demonstration change by a factor of 0.58 (or decrease by 42%) as compared to person who is very interested in politics (95% CI = [0.40 ; 0.84])
+* When a person is not at all interested in politics, his/her odds to attend demonstration change by a factor of 0.27 (or decrease by 73%) as compared to person very interested in politics (95% CI = [0.18 ; 0.42])
+* When income increases by one unit, the odds that a person will attend a demonstration change by factor of 0.94 (or decrease by 6%) (95% CI = [0.89 ; 0.99])
+
+Now, let's inspect average marginal effects and interpret them.
+
+```{r}
+m <- margins(model3, type = "response")
+summary(m)
+```
+
+The numbers from output above say the following:
+
+* for two hypothetical individuals with average values on income, the predicted probability of attending demonstration is 0.06 greater for the individual with tertiary education than for one without tertiary education
+* if income increased by some very small amount (0.01), then the predicted probability of attending demonstration would decrease by about 0.01 * 0.01
+* for two hypothetical individuals with average values on income, the predicted probability of attending demonstration is 0.29 smaller for the individual who is not at all interested in politics than for one who is very interested in politics
+* for two hypothetical individuals with average values on income, the predicted probability of attending demonstration is 0.13 smaller for the individual who is not very interested in politics than for one who is very interested in politics
+* for two hypothetical individuals with average values on income, the predicted probability of attending demonstration is 0.10 smaller for the individual who is somewhat interested in politics than for one who is very interested in politics
+
+# Predicting outcome
+
+In this part I will try to predict values of Y using different values of predictor.
+
+First, let's try to predict with fixed average value of income.
+
+```{r message=FALSE, warning=FALSE}
+pol <- c("Not at all interested", "Not very interested", "Somewhat interested", "Very interested")
+
+newdata1 <- crossing(income1 = mean(df0$income1), 
+                     intinpol = factor(pol), 
+                     eduT = factor(0:1))
+
+newdata1$pred <- predict(model3, newdata = newdata1, type = "response")
+
+newdata1
+```
+
+In the table above there are predicted values of Y in "pred" column for given set of predictors' values.
+
+And now, let's try to predict Y without holding income at average.
+
+```{r message=FALSE, warning=FALSE, paged.print=TRUE}
+newdata2 <- crossing(income1 = seq(from=1, to=10, length.out = 10), 
+                     intinpol = factor(pol), 
+                     eduT = factor(0:1))
+
+newdata3 <- cbind(newdata2, predict(model3, newdata = newdata2, type = "response", se = T))
+
+newdata3 <- within(newdata3, {
+  PredictedProb <- fit
+  LL <- fit - (1.96 * se.fit)
+  UL <- fit + (1.96 * se.fit)
+})
+
+head(newdata3)
+```
+
+In the table above it is possible to see predicted values of Y in "PredictedProb" column. Using this data I can visualize what I have.
+
+```{r echo=FALSE, fig.height=7, fig.width=10, message=FALSE, warning=FALSE}
+ggplot(newdata3, aes(x = income1, y = PredictedProb)) +
+  geom_ribbon(aes(ymin = LL, ymax = UL, fill = intinpol), alpha = 0.2) +
+  geom_smooth(aes(colour = intinpol), size = 0.75, se=FALSE) +
+  ylim(0, 1)+
+  labs(x="Income", color="Interest in politics", fill="Interest in politics")+
+  theme_stata(scheme = "s1color")+
+  theme(legend.position = "right")
+
+ggplot(newdata3, aes(x = income1, y = PredictedProb)) +
+  geom_ribbon(aes(ymin = LL, ymax = UL, fill = eduT), alpha = 0.2) +
+  geom_smooth(aes(colour = eduT), size = 0.75, se=FALSE) +
+  ylim(0, 1)+
+  labs(x="Income", color="Tertiary education", fill="Tertiary education")+
+  theme_stata(scheme = "s1color")+
+  theme(legend.position = "right")
+```
+
+From the plots above it is seen that there is no interaction effect neither for interest in politics nor for tertiary education and income. However, the lines indicate that in all cases probability to attend demonstration decrease with the increase  of income.
+
+# Model quality
+
+In this section I say about model quality using McFadden pseudo-R-squared since AIC works only when we compare models.
+
+```{r}
+nagelkerke(model3)
+```
+
+For our model McFadden pseudo-R-squared is equal to 0.02 which indicates bad quality because it should have values 0.2-0.4 to be interpreted as satisfactory.
+
+# Model accuracy
+
+In this part I will calculate accuracy of the model. 
+
+First, I need to create a training and a test subsamples and fit a model on the training data.
+
+```{r}
+bound <- floor((nrow(df0)/2))     #define 75% of training and test set (could be 50%, 60%)
+df2 <- df0[sample(nrow(df0)), ]   #sample 400 random rows out of the data
+df.train <- df2[1:bound, ]              #get training set
+df.test <- df2[(bound+1):nrow(df2), ]    #get test set
+
+testmodel <- glm(Q211 ~ eduT + intinpol + income1, data = df.train, family = "binomial", 
+                na.action = na.omit)
+```
+
+And then I build confusion matrix and look at results.
+
+```{r}
+pred <- format(round(predict(testmodel, newdata = df.test, type = "response")))
+confusionMatrix(table(pred, df.test$Q211))
+```
+
+P-value for comparison of accuracy and no information rate is insignificant which means that our model is not better than no model at all.
+
+# Model diagnostics
+
+In this section, I do model diagnostics and check some assumptions of logistic regression.
+
+**No prefect multicollinearity** - there is no perfect linear relationship between predictors. It is checked by Variance Inflation Factors (VIF) below.
+
+```{r}
+vif(model3)
+```
+
+For all predictors GVIF is ~ 1 which is good. There is no multicollinearity.
+
+**Linearity** - linear relationship between continuous predictor variables and the logit of the outcome.
+
+```{r}
+residualPlots(model3)
+```
+
+The results of the test and plots with continuous predictor (income1) show that there is linearity between it and the logit.
+
+# Conclusion
+
+So, I built a logistic regression model according to which 1) having higher education is associated with higher probability to attend peaceful demonstrations; 2) lower interest in politics associated with lower probability to attend peaceful demonstrations; 3) higher income is associated with lower probability to attend peaceful demonstrations. However, the model itself is not very good because some quality tests indicate insignificance of model against situation where no model at all.
