@@ -1,3 +1,3 @@
 # site
 
-[link](logreg.html)
+[link](logreg.Rmd)
